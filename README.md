@@ -23,9 +23,32 @@ Produces a self-contained executable JAR with all dependencies:
 java -jar famntlm.jar [options] [parent-proxy:port ...]
 java -jar famntlm.jar stop        # gracefully stop a running instance
 java -jar famntlm.jar status      # query a running instance
+java -jar famntlm.jar test [url]  # connectivity self-test (see below)
 ```
 
 Run `java -jar famntlm.jar -h` for the full option list.
+
+### Connectivity self-test
+
+Verify that an existing CNTLM configuration works end-to-end — it loads the
+config (honouring `-c` for a non-default location), **reuses the existing
+`PassLM`/`PassNT`/`PassNTLMv2` hashes**, and tries to reach an external URL
+through the parent proxy. It exits non-zero on failure, so it fits in scripts.
+
+```
+java -jar famntlm.jar test -c C:\path\to\cntlm.ini https://example.com
+```
+
+Example output on success:
+
+```
+[test] config: C:\path\to\cntlm.ini
+[test] identity: CORP\testuser  auth=NTLMv2  credentials=PassNTLMv2 PassNT PassLM
+  trying example.com:443 via 10.0.0.41:8080 as CORP\testuser (auth=NTLMv2) ...
+[test] PASS: reached example.com:443 via 10.0.0.41:8080 (CONNECT tunnel established)
+```
+
+On failure it prints `famntlm: test FAILED - <reason>` and returns exit code 1.
 
 ### Generate password hashes (like `cntlm -H`)
 

@@ -8,6 +8,7 @@ import br.nom.mattos.flavio.famntlm.log.AsyncRequestLog;
 import br.nom.mattos.flavio.famntlm.ntlm.Credentials;
 import br.nom.mattos.flavio.famntlm.ntlm.NtlmCrypto;
 import br.nom.mattos.flavio.famntlm.proxy.ProxyServer;
+import br.nom.mattos.flavio.famntlm.proxy.SanityCheck;
 import br.nom.mattos.flavio.famntlm.util.Hex;
 import java.io.BufferedReader;
 import java.io.File;
@@ -16,6 +17,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -45,6 +47,10 @@ public final class FamNTLM {
                 System.exit(1);
             }
             System.out.println(reply);
+            return;
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase("test")) {
+            runSanityTest(Arrays.copyOfRange(args, 1, args.length));
             return;
         }
 
@@ -123,6 +129,92 @@ public final class FamNTLM {
         log.shutdown();
     }
 
+    /**
+     * `famntlm test [-c file] [-u user] [-d domain] [-p pass] [url]` — reuse the
+     * credentials/hashes from the config and try to reach an external URL through
+     * the parent proxy. Exits non-zero on failure.
+     */
+    private static void runSanityTest(String[] args) throws IOException {
+        String configFile = null;
+        String url = "https://example.com";
+        String user = null, domain = null, password = null, auth = null;
+        boolean urlSet = false;
+        for (int i = 0; i < args.length; i++) {
+            String a = args[i];
+            if (a.startsWith("-c")) {
+                configFile = optValue(a, args, i);
+                i += a.length() > 2 ? 0 : 1;
+            } else if (a.startsWith("-u")) {
+                user = optValue(a, args, i);
+                i += a.length() > 2 ? 0 : 1;
+            } else if (a.startsWith("-d")) {
+                domain = optValue(a, args, i);
+                i += a.length() > 2 ? 0 : 1;
+            } else if (a.startsWith("-p")) {
+                password = optValue(a, args, i);
+                i += a.length() > 2 ? 0 : 1;
+            } else if (a.startsWith("-a")) {
+                auth = optValue(a, args, i);
+                i += a.length() > 2 ? 0 : 1;
+            } else if (!a.startsWith("-")) {
+                url = a;
+                urlSet = true;
+            }
+        }
+
+        Config cfg = new Config();
+        File file = ConfigParser.resolve(configFile);
+        if (file != null && file.isFile()) {
+            ConfigParser.parseInto(file, cfg);
+            cfg.configFile = file.getPath();
+        } else if (configFile != null) {
+            throw new IOException("Config file not found: " + configFile);
+        }
+        if (user != null) cfg.username = user;
+        if (domain != null) cfg.domain = domain;
+        if (password != null) cfg.password = password;
+        if (auth != null) cfg.auth = br.nom.mattos.flavio.famntlm.config.AuthType.parse(auth);
+
+        System.out.println("[test] config: " + (cfg.configFile != null ? cfg.configFile : "(none)"));
+        System.out.println("[test] identity: " + cfg.domain + "\\" + cfg.username
+                + "  auth=" + cfg.auth.label()
+                + "  credentials=" + describeCreds(cfg)
+                + (urlSet ? "" : "  (default url)"));
+
+        Credentials credentials = Credentials.from(cfg);
+        String problem = credentials.validate();
+        if (problem != null) {
+            System.err.println("famntlm: test FAILED - " + problem);
+            System.exit(1);
+        }
+        try {
+            String ok = new SanityCheck(cfg, credentials).run(url, System.out);
+            System.out.println("[test] PASS: " + ok);
+        } catch (IOException e) {
+            System.err.println("famntlm: test FAILED - " + e.getMessage());
+            System.exit(1);
+        }
+    }
+
+    private static String describeCreds(Config cfg) {
+        StringBuilder sb = new StringBuilder();
+        if (cfg.passNTLMv2 != null) sb.append("PassNTLMv2 ");
+        if (cfg.passNT != null) sb.append("PassNT ");
+        if (cfg.passLM != null) sb.append("PassLM ");
+        if (cfg.password != null) sb.append("Password ");
+        return sb.length() == 0 ? "(none!)" : sb.toString().trim();
+    }
+
+    private static String optValue(String arg, String[] args, int i) {
+        if (arg.length() > 2) {
+            return arg.substring(2);
+        }
+        if (i + 1 < args.length) {
+            return args[i + 1];
+        }
+        throw new IllegalArgumentException("Option " + arg + " requires a value");
+    }
+
     private static void generateHashes(CommandLine cmd) throws IOException {
         String user = cmd.username != null ? cmd.username : "";
         int at = user.indexOf('@');
@@ -187,6 +279,9 @@ public final class FamNTLM {
         o.println();
         o.println("Usage: famntlm [options] [parent-proxy:port ...]");
         o.println("       famntlm stop | status");
+        o.println("       famntlm test [-c file] [-u user] [-d domain] [-p pass] [url]");
+        o.println("            reach an external URL through the proxy using the config's");
+        o.println("            credentials/hashes; exits non-zero on failure");
         o.println();
         o.println("Options (CNTLM-compatible):");
         o.println("  -A <ip/mask>   Allow ACL rule            -a <type>   Auth: NTLMv2|NTLM2SR|NT|NTLM|LM");
