@@ -54,7 +54,7 @@ public final class FamNTLM {
             runSanityTest(Arrays.copyOfRange(args, 1, args.length));
             return;
         }
-        if (hasToken(args, "-list-config") || hasToken(args, "--list-config")) {
+        if (hasToken(args, "--list-config")) {
             runListConfig(args);
             return;
         }
@@ -202,7 +202,7 @@ public final class FamNTLM {
     }
 
     /**
-     * `-list-config [-c file] [url]` — locate the configuration, describe where
+     * `--list-config [-c file] [url]` — locate the configuration, describe where
      * it came from, print every directive EXCEPT the secret keys (Pass* hashes /
      * plaintext password are masked), then run the connectivity self-test through
      * the proxy and report its result. Terminates the JVM at the end.
@@ -213,7 +213,7 @@ public final class FamNTLM {
         boolean urlSet = false;
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
-            if (a.equalsIgnoreCase("-list-config") || a.equalsIgnoreCase("--list-config")) {
+            if (a.equalsIgnoreCase("--list-config")) {
                 continue;
             }
             if (a.startsWith("-c")) {
@@ -422,7 +422,7 @@ public final class FamNTLM {
         o.println("       famntlm test [-c file] [-u user] [-d domain] [-p pass] [url]");
         o.println("            reach an external URL through the proxy using the config's");
         o.println("            credentials/hashes; exits non-zero on failure");
-        o.println("       famntlm -list-config [-c file] [url]");
+        o.println("       famntlm --list-config [-c file] [url]");
         o.println("            locate the config, print all parameters (secret keys hidden),");
         o.println("            run the self-test through the proxy, then exit");
         o.println();

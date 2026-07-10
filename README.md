@@ -50,7 +50,7 @@ Example output on success:
 
 On failure it prints `famntlm: test FAILED - <reason>` and returns exit code 1.
 
-### Inspect a configuration: `-list-config`
+### Inspect a configuration: `--list-config`
 
 Locates the configuration, describes where it was found, prints **every
 parameter except the secret keys** (the `Pass*` hashes and any password are
@@ -58,7 +58,7 @@ masked), then runs the connectivity self-test through the proxy and reports the
 result before exiting.
 
 ```
-java -jar famntlm.jar -list-config -c C:\path\to\cntlm.ini https://example.com
+java -jar famntlm.jar --list-config -c C:\path\to\cntlm.ini https://example.com
 ```
 
 ```
