@@ -14,6 +14,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -51,6 +52,10 @@ public final class FamNTLM {
         }
         if (args.length > 0 && args[0].equalsIgnoreCase("test")) {
             runSanityTest(Arrays.copyOfRange(args, 1, args.length));
+            return;
+        }
+        if (hasToken(args, "-list-config") || hasToken(args, "--list-config")) {
+            runListConfig(args);
             return;
         }
 
@@ -196,6 +201,141 @@ public final class FamNTLM {
         }
     }
 
+    /**
+     * `-list-config [-c file] [url]` — locate the configuration, describe where
+     * it came from, print every directive EXCEPT the secret keys (Pass* hashes /
+     * plaintext password are masked), then run the connectivity self-test through
+     * the proxy and report its result. Terminates the JVM at the end.
+     */
+    private static void runListConfig(String[] args) throws IOException {
+        String configFile = null;
+        String url = "https://example.com";
+        boolean urlSet = false;
+        for (int i = 0; i < args.length; i++) {
+            String a = args[i];
+            if (a.equalsIgnoreCase("-list-config") || a.equalsIgnoreCase("--list-config")) {
+                continue;
+            }
+            if (a.startsWith("-c")) {
+                configFile = optValue(a, args, i);
+                i += a.length() > 2 ? 0 : 1;
+            } else if (!a.startsWith("-")) {
+                url = a;
+                urlSet = true;
+            }
+        }
+
+        PrintStream o = System.out;
+        o.println("=== FamNTLM configuration report ===");
+
+        File file = ConfigParser.resolve(configFile);
+        if (configFile != null) {
+            o.println("Source          : -c override");
+            o.println("Location        : " + configFile + (file != null && file.isFile() ? "" : "  (NOT FOUND)"));
+        } else if (file != null) {
+            o.println("Source          : default search path");
+            o.println("Location        : " + file.getPath());
+        } else {
+            o.println("Source          : default search path");
+            o.println("Location        : (none found)");
+        }
+        o.println("Searched paths  : " + String.join(", ", ConfigParser.defaultLocations()));
+
+        Config cfg = new Config();
+        if (file != null && file.isFile()) {
+            ConfigParser.parseInto(file, cfg);
+            cfg.configFile = file.getPath();
+        } else if (configFile != null) {
+            System.err.println("famntlm: config file not found: " + configFile);
+            System.exit(1);
+        } else {
+            System.err.println("famntlm: no configuration file found");
+            System.exit(1);
+        }
+
+        o.println();
+        o.println("--- Parameters (secret keys hidden) ---");
+        printParameters(cfg, o);
+
+        o.println();
+        o.println("--- Connectivity self-test ---");
+        Credentials credentials = Credentials.from(cfg);
+        String problem = credentials.validate();
+        int exit;
+        if (problem != null) {
+            o.println("Result          : SKIPPED (" + problem + ")");
+            exit = 1;
+        } else {
+            try {
+                String ok = new SanityCheck(cfg, credentials).run(url, o);
+                o.println("Result          : PASS - " + ok);
+                exit = 0;
+            } catch (IOException e) {
+                o.println("Result          : FAIL - " + e.getMessage());
+                exit = 1;
+            }
+        }
+        o.println("URL tested      : " + url + (urlSet ? "" : "  (default)"));
+        o.flush();
+        System.exit(exit);
+    }
+
+    private static void printParameters(Config cfg, PrintStream o) {
+        line(o, "Username", cfg.username);
+        line(o, "Domain", cfg.domain);
+        line(o, "Workstation", cfg.workstation != null ? cfg.workstation
+                : Credentials.defaultWorkstation() + " (auto)");
+        line(o, "Auth", cfg.auth.label());
+        line(o, "Flags", cfg.flags != null ? "0x" + Integer.toHexString(cfg.flags) : null);
+        line(o, "NTLMToBasic", cfg.ntlmToBasic ? "yes" : "no");
+        line(o, "Gateway", cfg.gateway ? "yes" : "no");
+        line(o, "Credentials", describeCreds(cfg) + " (values hidden)");
+
+        for (Config.Proxy p : cfg.proxies) {
+            line(o, "Proxy", p.toString());
+        }
+        if (!cfg.noProxy.isEmpty()) {
+            line(o, "NoProxy", String.join(", ", cfg.noProxy));
+        }
+        for (Config.Listen l : cfg.listen) {
+            line(o, "Listen", (l.bindAddress != null ? l.bindAddress + ":" : "") + l.port);
+        }
+        for (Config.AclRule r : cfg.acl) {
+            line(o, r.allow ? "Allow" : "Deny", r.spec);
+        }
+        for (String h : cfg.headers) {
+            line(o, "Header", h);
+        }
+        for (Config.Tunnel t : cfg.tunnels) {
+            line(o, "Tunnel", (t.bindAddress != null ? t.bindAddress + ":" : "")
+                    + t.localPort + ":" + t.remoteHost + ":" + t.remotePort);
+        }
+        for (Config.Listen s : cfg.socks5) {
+            line(o, "SOCKS5Proxy", (s.bindAddress != null ? s.bindAddress + ":" : "") + s.port);
+        }
+        for (String su : cfg.socks5Users) {
+            int colon = su.indexOf(':');
+            line(o, "SOCKS5User", (colon > 0 ? su.substring(0, colon) : su) + ":*** (password hidden)");
+        }
+        line(o, "ISAScannerSize", cfg.isaScannerSize != null ? String.valueOf(cfg.isaScannerSize) : null);
+        line(o, "ISAScannerAgent", cfg.isaScannerAgent);
+    }
+
+    private static void line(PrintStream o, String name, String value) {
+        if (value != null) {
+            o.printf("%-16s: %s%n", name, value);
+        }
+    }
+
+    private static boolean hasToken(String[] args, String token) {
+        for (String a : args) {
+            if (a.equalsIgnoreCase(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String describeCreds(Config cfg) {
         StringBuilder sb = new StringBuilder();
         if (cfg.passNTLMv2 != null) sb.append("PassNTLMv2 ");
@@ -282,6 +422,9 @@ public final class FamNTLM {
         o.println("       famntlm test [-c file] [-u user] [-d domain] [-p pass] [url]");
         o.println("            reach an external URL through the proxy using the config's");
         o.println("            credentials/hashes; exits non-zero on failure");
+        o.println("       famntlm -list-config [-c file] [url]");
+        o.println("            locate the config, print all parameters (secret keys hidden),");
+        o.println("            run the self-test through the proxy, then exit");
         o.println();
         o.println("Options (CNTLM-compatible):");
         o.println("  -A <ip/mask>   Allow ACL rule            -a <type>   Auth: NTLMv2|NTLM2SR|NT|NTLM|LM");

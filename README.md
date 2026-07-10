@@ -50,6 +50,38 @@ Example output on success:
 
 On failure it prints `famntlm: test FAILED - <reason>` and returns exit code 1.
 
+### Inspect a configuration: `-list-config`
+
+Locates the configuration, describes where it was found, prints **every
+parameter except the secret keys** (the `Pass*` hashes and any password are
+masked), then runs the connectivity self-test through the proxy and reports the
+result before exiting.
+
+```
+java -jar famntlm.jar -list-config -c C:\path\to\cntlm.ini https://example.com
+```
+
+```
+=== FamNTLM configuration report ===
+Source          : -c override
+Location        : C:\path\to\cntlm.ini
+Searched paths  : C:\Program Files\Cntlm\cntlm.ini, cntlm.ini
+
+--- Parameters (secret keys hidden) ---
+Username        : testuser
+Domain          : CORP
+Auth            : NTLMv2
+Credentials     : PassNTLMv2 PassNT PassLM (values hidden)
+Proxy           : 10.0.0.41:8080
+Listen          : 3128
+
+--- Connectivity self-test ---
+Result          : PASS - reached example.com:443 via 10.0.0.41:8080 (CONNECT tunnel established)
+URL tested      : https://example.com
+```
+
+Exit code is 0 when the self-test passes, 1 otherwise.
+
 ### Generate password hashes (like `cntlm -H`)
 
 ```
