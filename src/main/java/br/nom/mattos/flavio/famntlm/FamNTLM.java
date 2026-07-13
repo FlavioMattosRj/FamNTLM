@@ -96,7 +96,7 @@ public final class FamNTLM {
     }
 
     private static void startProxy(Config cfg, Credentials credentials) throws IOException {
-        AsyncRequestLog log = new AsyncRequestLog(8192, System.out);
+        AsyncRequestLog log = new AsyncRequestLog(System.out);
         ProxyServer server = new ProxyServer(cfg, credentials, log);
         CountDownLatch stopLatch = new CountDownLatch(1);
 
@@ -106,7 +106,7 @@ public final class FamNTLM {
                 return "stopping";
             }
             if (command.equalsIgnoreCase("STATUS")) {
-                return "running; dropped-log-entries=" + log.droppedCount();
+                return "running; log-backlog=" + log.backlog() + " peak=" + log.peakBacklog();
             }
             return "unknown command: " + command;
         });
