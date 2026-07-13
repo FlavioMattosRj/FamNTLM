@@ -46,6 +46,7 @@ public final class NtlmProxyClient {
             InputStream in = socket.getInputStream();
 
             byte[] type1 = NtlmMessages.type1(credentials, config.flags);
+            verboseType1(type1);
             sendConnect(out, targetHostPort, "NTLM " + b64(type1));
 
             HttpHead resp = HttpHead.read(in);
@@ -71,6 +72,7 @@ public final class NtlmProxyClient {
                     NtlmMessages.authenticateFlags(credentials.auth, challenge.flags, config.flags),
                     credentials.auth.label(), credentials.domain, credentials.username);
             byte[] type3 = NtlmMessages.type3(credentials, challenge, config.flags);
+            verboseType3(type3);
             sendConnect(out, targetHostPort, "NTLM " + b64(type3));
 
             HttpHead finalResp = HttpHead.read(in);
@@ -108,6 +110,7 @@ public final class NtlmProxyClient {
             InputStream in = socket.getInputStream();
 
             byte[] type1 = NtlmMessages.type1(credentials, config.flags);
+            verboseType1(type1);
             sendPlain(out, requestLine, headers, "NTLM " + b64(type1), 0, null, true);
 
             HttpHead resp = HttpHead.read(in);
@@ -126,6 +129,7 @@ public final class NtlmProxyClient {
                         NtlmMessages.authenticateFlags(credentials.auth, challenge.flags, config.flags),
                         credentials.auth.label(), credentials.domain, credentials.username);
                 byte[] type3 = NtlmMessages.type3(credentials, challenge, config.flags);
+                verboseType3(type3);
                 sendPlain(out, requestLine, headers, "NTLM " + b64(type3),
                         body == null ? 0 : body.length, body, false);
                 copyToEof(in, clientOut);
@@ -180,6 +184,25 @@ public final class NtlmProxyClient {
         if (config.verbose) {
             System.err.println("[ntlm] " + String.format(fmt, args));
         }
+    }
+
+    private void verboseType1(byte[] message) {
+        verbose("Type-1 flags=0x%08x messageLen=%d domainLen=%d workstationLen=%d",
+                readLe32(message, 12), message.length, readLe16(message, 16), readLe16(message, 24));
+    }
+
+    private void verboseType3(byte[] message) {
+        verbose("Type-3 messageLen=%d lmResponseLen=%d ntResponseLen=%d domainLen=%d userLen=%d workstationLen=%d",
+                message.length, readLe16(message, 12), readLe16(message, 20),
+                readLe16(message, 28), readLe16(message, 36), readLe16(message, 44));
+    }
+
+    private static int readLe16(byte[] b, int offset) {
+        return (b[offset] & 0xff) | ((b[offset + 1] & 0xff) << 8);
+    }
+
+    private static int readLe32(byte[] b, int offset) {
+        return readLe16(b, offset) | (readLe16(b, offset + 2) << 16);
     }
 
     private static boolean isHopByHop(String headerLine) {

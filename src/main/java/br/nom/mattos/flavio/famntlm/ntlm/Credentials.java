@@ -69,16 +69,21 @@ public final class Credentials {
         switch (auth) {
             case NTLMV2:
                 if (ntlmv2Hash == null) return "Auth NTLMv2 requires PassNTLMv2 or Password";
+                if (ntlmv2Hash.length != 16) return "PassNTLMv2 must contain exactly 32 hexadecimal characters";
                 break;
             case NTLM2SR:
             case NT:
                 if (ntHash == null) return "Auth " + auth.label() + " requires PassNT or Password";
+                if (ntHash.length != 16) return "PassNT must contain exactly 32 hexadecimal characters";
                 break;
             case NTLM:
                 if (ntHash == null || lmHash == null) return "Auth NTLM requires PassNT+PassLM or Password";
+                if (ntHash.length != 16) return "PassNT must contain exactly 32 hexadecimal characters";
+                if (lmHash.length != 16) return "PassLM must contain exactly 32 hexadecimal characters";
                 break;
             case LM:
                 if (lmHash == null) return "Auth LM requires PassLM or Password";
+                if (lmHash.length != 16) return "PassLM must contain exactly 32 hexadecimal characters";
                 break;
             default:
                 break;

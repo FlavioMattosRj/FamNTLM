@@ -257,7 +257,7 @@ public final class FamNTLM {
     }
 
     /**
-     * `famntlm test [-c file] [-u user] [-d domain] [-p pass] [url]` — reuse the
+     * `famntlm test [-v] [-c file] [-u user] [-d domain] [-p pass] [url]` — reuse the
      * credentials/hashes from the config and try to reach an external URL through
      * the parent proxy. Exits non-zero on failure.
      */
@@ -266,9 +266,12 @@ public final class FamNTLM {
         String url = "https://example.com";
         String user = null, domain = null, password = null, auth = null;
         boolean urlSet = false;
+        boolean verbose = false;
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
-            if (a.startsWith("-c")) {
+            if (a.equals("-v")) {
+                verbose = true;
+            } else if (a.startsWith("-c")) {
                 configFile = optValue(a, args, i);
                 i += a.length() > 2 ? 0 : 1;
             } else if (a.startsWith("-u")) {
@@ -301,6 +304,7 @@ public final class FamNTLM {
         if (domain != null) cfg.domain = domain;
         if (password != null) cfg.password = password;
         if (auth != null) cfg.auth = br.nom.mattos.flavio.famntlm.config.AuthType.parse(auth);
+        cfg.verbose = verbose;
 
         System.out.println("[test] config: " + (cfg.configFile != null ? cfg.configFile : "(none)"));
         System.out.println("[test] identity: " + cfg.domain + "\\" + cfg.username
@@ -541,7 +545,7 @@ public final class FamNTLM {
         o.println();
         o.println("Usage: famntlm [options] [parent-proxy:port ...]");
         o.println("       famntlm stop | status");
-        o.println("       famntlm test [-c file] [-u user] [-d domain] [-p pass] [url]");
+        o.println("       famntlm test [-v] [-c file] [-u user] [-d domain] [-p pass] [url]");
         o.println("            reach an external URL through the proxy using the config's");
         o.println("            credentials/hashes; exits non-zero on failure");
         o.println("       famntlm --list-config [-c file] [url]");
