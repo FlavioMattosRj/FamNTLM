@@ -9,15 +9,24 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Non-blocking console log for processed requests. Producers enqueue onto an
- * unbounded queue; a single daemon consumer drains it to the console. No entry
- * is ever dropped: under load the backlog grows and then shrinks again as the
- * consumer catches up.
+ * Non-blocking console log for processed requests. Producers enqueue onto a
+ * <b>bounded</b> queue; a single daemon consumer drains it to the console. The
+ * bound caps memory use so a slow console or a request burst can never exhaust
+ * the heap.
  *
- * <p>Producers stay off the request-processing critical path: {@link #log} only
- * captures the current time as a cheap {@code long} and hands the line to a
- * lock-free enqueue. The (non-thread-safe) date formatting happens later, on the
- * single consumer thread, so producers never contend on a shared formatter.
+ * <p>Two overflow policies are supported:
+ * <ul>
+ *   <li><b>drop-and-count</b> (default): when the queue is full the newest line
+ *       is dropped and counted, so request threads never block;</li>
+ *   <li><b>backpressure</b> ({@code fullLog}, enabled by {@code --full-log}):
+ *       when the queue is full the producer waits for room, so no line is ever
+ *       lost — at the cost of briefly slowing a request thread only in the
+ *       pathological case where logging cannot keep up.</li>
+ * </ul>
+ *
+ * <p>Producers stay off the formatting path either way: {@link #log} captures
+ * the time as a cheap {@code long} and the date is rendered later on the single
+ * consumer thread.
  */
 public final class AsyncRequestLog {
 
@@ -32,27 +41,48 @@ public final class AsyncRequestLog {
         }
     }
 
-    private final BlockingQueue<Entry> queue = new LinkedBlockingQueue<>();
+    private final BlockingQueue<Entry> queue;
     private final Thread consumer;
     private final PrintStream out;
+    private final boolean blockWhenFull;
     // Only ever touched by the single consumer thread -> no synchronization needed.
     private final SimpleDateFormat time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+    private final AtomicLong dropped = new AtomicLong();
     private final AtomicLong peakBacklog = new AtomicLong();
     private volatile boolean running = true;
 
-    public AsyncRequestLog(PrintStream out) {
+    /**
+     * @param out           where lines are written
+     * @param capacity      maximum lines buffered before the overflow policy kicks in
+     * @param blockWhenFull {@code true} to apply backpressure (never drop);
+     *                      {@code false} to drop-and-count on overflow
+     */
+    public AsyncRequestLog(PrintStream out, int capacity, boolean blockWhenFull) {
         this.out = out;
+        this.blockWhenFull = blockWhenFull;
+        this.queue = new LinkedBlockingQueue<>(Math.max(1, capacity));
         this.consumer = new Thread(this::drain, "famntlm-log");
         this.consumer.setDaemon(true);
         this.consumer.start();
     }
 
     /**
-     * Enqueue a line. Never blocks and never drops: the unbounded queue grows if
-     * the consumer falls behind and drains again once it catches up.
+     * Enqueue a line. In drop-and-count mode this never blocks; in backpressure
+     * mode it may briefly wait for room but never drops.
      */
     public void log(String line) {
-        queue.add(new Entry(System.currentTimeMillis(), line));
+        Entry e = new Entry(System.currentTimeMillis(), line);
+        if (blockWhenFull) {
+            try {
+                queue.put(e); // waits for capacity; never drops
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt(); // shutting down; give up this line
+                return;
+            }
+        } else if (!queue.offer(e)) {
+            dropped.incrementAndGet();
+            return;
+        }
         // Best-effort high-water mark for observability; size() is O(1) here.
         peakBacklog.accumulateAndGet(queue.size(), Math::max);
     }
@@ -85,6 +115,11 @@ public final class AsyncRequestLog {
         return peakBacklog.get();
     }
 
+    /** Number of lines dropped under overflow (always 0 in backpressure mode). */
+    public long droppedCount() {
+        return dropped.get();
+    }
+
     public void shutdown() {
         running = false;
         consumer.interrupt();
@@ -97,6 +132,10 @@ public final class AsyncRequestLog {
         Entry e;
         while ((e = queue.poll()) != null) {
             write(e);
+        }
+        long d = dropped.get();
+        if (d > 0) {
+            out.println("[log] " + d + " entries dropped under load (use --full-log to never drop)");
         }
     }
 }

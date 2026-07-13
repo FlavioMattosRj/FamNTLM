@@ -101,6 +101,8 @@ public final class Config {
     public String traceFile;     // -T
     public boolean foreground;   // -f
     public boolean verbose;      // -v
+    public boolean fullLog;      // --full-log (FamNTLM extension): never drop log lines,
+                                 // apply backpressure instead of counted drops
     public boolean magicTest;    // -M
     public String magicTestUrl;
 

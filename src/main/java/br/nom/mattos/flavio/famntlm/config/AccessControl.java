@@ -88,7 +88,11 @@ public final class AccessControl {
         }
         if (maskPart.indexOf('.') >= 0 || maskPart.indexOf(':') >= 0) {
             // Dotted netmask form, e.g. 255.255.0.0
-            return maskToPrefix(InetAddress.getByName(maskPart).getAddress());
+            byte[] mask = InetAddress.getByName(maskPart).getAddress();
+            if (mask.length * 8 != maxBits) {
+                throw new IllegalArgumentException("netmask family does not match address");
+            }
+            return maskToPrefix(mask); // <= maxBits by construction
         }
         int bits;
         try {
@@ -153,13 +157,15 @@ public final class AccessControl {
         if (r.network.length != addr.length) {
             return false; // different address family (IPv4 vs IPv6)
         }
-        int fullBytes = r.prefixBits / 8;
+        // Clamp defensively: a malformed rule must never index past the array.
+        int prefix = Math.min(r.prefixBits, r.network.length * 8);
+        int fullBytes = prefix / 8;
         for (int i = 0; i < fullBytes; i++) {
             if (r.network[i] != addr[i]) {
                 return false;
             }
         }
-        int remBits = r.prefixBits % 8;
+        int remBits = prefix % 8;
         if (remBits != 0) {
             int mask = (0xFF << (8 - remBits)) & 0xFF;
             return (r.network[fullBytes] & mask) == (addr[fullBytes] & mask);

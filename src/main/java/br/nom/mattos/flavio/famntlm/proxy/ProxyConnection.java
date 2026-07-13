@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * Handles a single client connection: parses the HTTP request and forwards it
@@ -84,10 +85,16 @@ public final class ProxyConnection implements Runnable {
 
     private void handlePlain(String peer, HttpHead head, InputStream in, String method, String target)
             throws IOException {
+        String smuggling = detectSmuggling(head);
+        if (smuggling != null) {
+            writeStatus(client, 400, "Bad Request");
+            log.log("400   " + peer + "  " + method + " " + logTarget(target) + "  (" + smuggling + ")");
+            return;
+        }
         byte[] body = readBody(head, in);
         if (body == null) {
             writeStatus(client, 413, "Request Entity Too Large");
-            log.log("413   " + peer + "  " + method + " " + target + "  (body too large)");
+            log.log("413   " + peer + "  " + method + " " + logTarget(target) + "  (body too large)");
             return;
         }
         if (config.proxies.isEmpty()) {
@@ -99,14 +106,52 @@ public final class ProxyConnection implements Runnable {
             try {
                 OutputStream clientOut = client.getOutputStream();
                 proxyClient.forwardPlain(proxy, head.firstLine, head.headerLines, body, clientOut);
-                log.log("200   " + peer + "  " + method + " " + target + "  via " + proxy);
+                log.log("200   " + peer + "  " + method + " " + logTarget(target) + "  via " + proxy);
                 return;
             } catch (IOException e) {
                 last = e;
             }
         }
         writeStatus(client, 502, "Bad Gateway");
-        log.log("502   " + peer + "  " + method + " " + target + "  " + (last != null ? last.getMessage() : ""));
+        log.log("502   " + peer + "  " + method + " " + logTarget(target) + "  "
+                + (last != null ? last.getMessage() : ""));
+    }
+
+    /**
+     * Detect HTTP request-smuggling vectors. We forward request bodies by
+     * Content-Length only, so anything that could make us and the parent proxy
+     * disagree on where the body ends is rejected rather than forwarded: any
+     * Transfer-Encoding, and duplicate/conflicting/list-valued Content-Length.
+     *
+     * @return a short reason when the request must be refused, or {@code null}
+     */
+    private static String detectSmuggling(HttpHead head) {
+        if (!head.headers("Transfer-Encoding").isEmpty()) {
+            return "Transfer-Encoding not supported";
+        }
+        List<String> cls = head.headers("Content-Length");
+        String seen = null;
+        for (String cl : cls) {
+            String v = cl.trim();
+            if (v.indexOf(',') >= 0) {
+                return "malformed Content-Length";
+            }
+            if (seen == null) {
+                seen = v;
+            } else if (!seen.equals(v)) {
+                return "conflicting Content-Length";
+            }
+        }
+        if (cls.size() > 1) {
+            return "duplicate Content-Length";
+        }
+        return null;
+    }
+
+    /** Strip the query string from a logged URL so tokens/secrets are not recorded. */
+    private static String logTarget(String target) {
+        int q = target.indexOf('?');
+        return q >= 0 ? target.substring(0, q) : target;
     }
 
     private static byte[] readBody(HttpHead head, InputStream in) throws IOException {

@@ -154,6 +154,7 @@ public final class NtlmProxyClient {
         String name = headerLine.substring(0, colon).trim().toLowerCase();
         return name.equals("proxy-authorization") || name.equals("proxy-connection")
                 || name.equals("connection") || name.equals("content-length")
+                || name.equals("transfer-encoding")
                 || name.equals("proxy-authenticate") || name.equals("keep-alive");
     }
 

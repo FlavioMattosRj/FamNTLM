@@ -14,6 +14,9 @@ import java.util.List;
  */
 public final class HttpHead {
 
+    /** Cap on the message head so a client (or parent) cannot exhaust memory. */
+    private static final int MAX_HEAD_BYTES = 64 * 1024;
+
     public final String firstLine;
     public final List<String> headerLines;
     public final byte[] raw;
@@ -30,6 +33,9 @@ public final class HttpHead {
         int b;
         while ((b = in.read()) != -1) {
             buf.write(b);
+            if (buf.size() > MAX_HEAD_BYTES) {
+                throw new IOException("HTTP head exceeds " + MAX_HEAD_BYTES + " bytes");
+            }
             if (b == '\r' && (state == 0 || state == 2)) {
                 state++;
             } else if (b == '\n' && (state == 1 || state == 3)) {

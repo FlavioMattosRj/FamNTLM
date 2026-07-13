@@ -15,11 +15,14 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
@@ -97,9 +100,12 @@ public final class FamNTLM {
         startProxy(cfg, credentials);
     }
 
+    /** Bounded log buffer size; caps memory even under a burst or a slow console. */
+    private static final int LOG_CAPACITY = 16384;
+
     private static void startProxy(Config cfg, Credentials credentials) throws IOException {
         warnUnsupportedDirectives(cfg);
-        AsyncRequestLog log = new AsyncRequestLog(System.out);
+        AsyncRequestLog log = new AsyncRequestLog(System.out, LOG_CAPACITY, cfg.fullLog);
         ProxyServer server = new ProxyServer(cfg, credentials, log);
         CountDownLatch stopLatch = new CountDownLatch(1);
 
@@ -109,7 +115,8 @@ public final class FamNTLM {
                 return "stopping";
             }
             if (command.equalsIgnoreCase("STATUS")) {
-                return "running; log-backlog=" + log.backlog() + " peak=" + log.peakBacklog();
+                return "running; log-backlog=" + log.backlog() + " peak=" + log.peakBacklog()
+                        + " dropped=" + log.droppedCount();
             }
             return "unknown command: " + command;
         });
@@ -172,15 +179,41 @@ public final class FamNTLM {
             }
         }
 
-        if (cfg.gateway && cfg.acl.isEmpty()) {
-            System.err.println("famntlm: SECURITY WARNING - Gateway is enabled but no Allow/Deny ACL is"
-                    + " configured.");
-            System.err.println("    The proxy will listen on all interfaces (0.0.0.0) and forward ANY"
-                    + " client's requests");
-            System.err.println("    using your NTLM credentials (open proxy). Add Allow/Deny rules,"
-                    + " bind Listen to a");
-            System.err.println("    specific address, or restrict the port at the firewall.");
+        if (listensPublicly(cfg) && cfg.acl.isEmpty()) {
+            System.err.println("famntlm: SECURITY WARNING - the proxy will listen on a non-loopback"
+                    + " address but no Allow/Deny ACL is configured.");
+            System.err.println("    Any host that can reach the port will be able to forward requests"
+                    + " using your NTLM");
+            System.err.println("    credentials (open proxy). Add Allow/Deny rules, bind Listen to a"
+                    + " loopback address,");
+            System.err.println("    or restrict the port at the firewall.");
         }
+    }
+
+    /**
+     * Whether any effective listener binds to a non-loopback address, mirroring
+     * {@code ProxyServer.resolveBind}: an explicit bind address wins; otherwise
+     * {@code Gateway yes} means 0.0.0.0 and the default is loopback. This is what
+     * decides the open-proxy warning — {@code Gateway} alone is not enough, since
+     * {@code Listen 0.0.0.0:3128} exposes the service just the same.
+     */
+    private static boolean listensPublicly(Config cfg) {
+        List<Config.Listen> listeners = cfg.listen.isEmpty()
+                ? Collections.singletonList(new Config.Listen(null, 3128)) : cfg.listen;
+        for (Config.Listen l : listeners) {
+            try {
+                InetAddress addr = l.bindAddress != null
+                        ? InetAddress.getByName(l.bindAddress)
+                        : InetAddress.getByName(cfg.gateway ? "0.0.0.0" : "127.0.0.1");
+                if (!addr.isLoopbackAddress()) {
+                    return true;
+                }
+            } catch (UnknownHostException e) {
+                // Unresolvable bind address: assume it is reachable and warn to be safe.
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -491,6 +524,10 @@ public final class FamNTLM {
         o.println("  -T <file>      Trace file                -U <uid>    Drop privileges to uid");
         o.println("  -u <user>      Account username          -v          Verbose (implies -f)");
         o.println("  -w <host>      Workstation name");
+        o.println();
+        o.println("FamNTLM extensions:");
+        o.println("  --full-log     Never drop log lines: apply backpressure instead of dropping");
+        o.println("                 under load (default is a bounded buffer that drops+counts).");
         o.println();
         o.println("Default config: " + String.join(", ", ConfigParser.defaultLocations()));
         o.println("Stop a running instance: famntlm stop   (control port " + ControlServer.port() + ")");

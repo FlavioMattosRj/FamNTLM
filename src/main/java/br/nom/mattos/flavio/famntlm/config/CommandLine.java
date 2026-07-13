@@ -22,6 +22,7 @@ public final class CommandLine {
     public boolean verbose;        // -v
     public boolean gateway;        // -g
     public boolean ntlmToBasic;    // -B
+    public boolean fullLog;        // --full-log (FamNTLM extension)
 
     public String username;        // -u  (user[@domain])
     public String cliDomain;       // -d
@@ -57,6 +58,17 @@ public final class CommandLine {
                     c.proxies.add(args[i++]);
                 }
                 break;
+            }
+            if (arg.startsWith("--")) {
+                // Long options are FamNTLM extensions (cntlm has none). Note that
+                // --list-config is intercepted earlier, before parse() is reached.
+                if (arg.equals("--full-log")) {
+                    c.fullLog = true;
+                } else {
+                    throw new IllegalArgumentException("Unknown option: " + arg);
+                }
+                i++;
+                continue;
             }
             if (arg.length() < 2 || arg.charAt(0) != '-') {
                 c.proxies.add(arg);
@@ -147,6 +159,7 @@ public final class CommandLine {
         }
         if (gateway) cfg.gateway = true;
         if (ntlmToBasic) cfg.ntlmToBasic = true;
+        if (fullLog) cfg.fullLog = true;
         if (foreground) cfg.foreground = true;
         if (verbose) cfg.verbose = true;
 

@@ -100,6 +100,12 @@ public final class ProxyServer {
                 if (running) {
                     log.log("[accept error] " + e.getMessage());
                 }
+            } catch (RuntimeException e) {
+                // A single bad connection or ACL edge case must never kill the
+                // acceptor and take the whole listener down with it.
+                if (running) {
+                    log.log("[accept error] unexpected: " + e);
+                }
             }
         }
     }

@@ -94,6 +94,22 @@ public class AccessControlTest {
     }
 
     @Test
+    public void familyMismatchedMaskIsReportedAndSkipped() throws Exception {
+        // IPv4 address with an IPv6-length mask: must be rejected at compile time,
+        // never producing a rule whose prefix overruns the address on match.
+        List<String> errors = new ArrayList<>();
+        List<Config.AclRule> rules = new ArrayList<>();
+        rules.add(new Config.AclRule(true, "10.0.0.0/ffff:ffff:ffff::"));
+        rules.add(deny("*"));
+        AccessControl acl = AccessControl.compile(rules, errors::add);
+
+        assertEquals(1, errors.size());
+        // The bad rule was skipped and matching must not throw for any client.
+        assertFalse(allowed(acl, "10.0.0.5"));
+        assertFalse(allowed(acl, "192.168.1.1"));
+    }
+
+    @Test
     public void invalidSpecIsReportedAndSkipped() throws Exception {
         List<String> errors = new ArrayList<>();
         List<Config.AclRule> rules = new ArrayList<>();
