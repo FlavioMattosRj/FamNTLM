@@ -45,7 +45,7 @@ public final class NtlmProxyClient {
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
 
-            byte[] type1 = NtlmMessages.type1(credentials.auth, config.flags);
+            byte[] type1 = NtlmMessages.type1(credentials, config.flags);
             sendConnect(out, targetHostPort, "NTLM " + b64(type1));
 
             HttpHead resp = HttpHead.read(in);
@@ -107,7 +107,7 @@ public final class NtlmProxyClient {
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
 
-            byte[] type1 = NtlmMessages.type1(credentials.auth, config.flags);
+            byte[] type1 = NtlmMessages.type1(credentials, config.flags);
             sendPlain(out, requestLine, headers, "NTLM " + b64(type1), 0, null, true);
 
             HttpHead resp = HttpHead.read(in);

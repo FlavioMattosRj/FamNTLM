@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.Locale;
 
 /**
  * Encodes NTLM Type-1 (Negotiate) and Type-3 (Authenticate) messages and parses
@@ -32,18 +33,40 @@ public final class NtlmMessages {
     }
 
     public static byte[] type1(AuthType auth, Integer flagOverride) {
+        return type1(auth, "", "", flagOverride);
+    }
+
+    /**
+     * Build a CNTLM-compatible Type-1 message.  CNTLM advertises and includes
+     * the configured domain and workstation in this leg; a few corporate
+     * proxies use those fields while selecting the authentication backend.
+     */
+    public static byte[] type1(Credentials credentials, Integer flagOverride) {
+        return type1(credentials.auth, credentials.domain, credentials.workstation, flagOverride);
+    }
+
+    private static byte[] type1(AuthType auth, String domainName, String workstationName,
+                                Integer flagOverride) {
+        byte[] domain = oemUpper(domainName);
+        byte[] workstation = oemUpper(workstationName);
         int flags = flagOverride != null ? flagOverride : defaultType1Flags(auth);
+        if (flagOverride == null) {
+            if (domain.length > 0) flags |= NtlmFlags.NEGOTIATE_DOMAIN_SUPPLIED;
+            if (workstation.length > 0) flags |= NtlmFlags.NEGOTIATE_WORKSTATION_SUPPLIED;
+        }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(SIGNATURE, 0, SIGNATURE.length);
         writeInt(out, 1);          // message type
         writeInt(out, flags);
-        // Empty domain and workstation security buffers (offset points past header).
-        writeShort(out, 0);
-        writeShort(out, 0);
+        // CNTLM payload order is workstation followed by domain.
+        writeShort(out, domain.length);
+        writeShort(out, domain.length);
+        writeInt(out, 32 + workstation.length);
+        writeShort(out, workstation.length);
+        writeShort(out, workstation.length);
         writeInt(out, 32);
-        writeShort(out, 0);
-        writeShort(out, 0);
-        writeInt(out, 32);
+        out.write(workstation, 0, workstation.length);
+        out.write(domain, 0, domain.length);
         return out.toByteArray();
     }
 
@@ -219,6 +242,13 @@ public final class NtlmMessages {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private static byte[] oemUpper(String s) {
+        if (s == null) {
+            s = "";
+        }
+        return s.toUpperCase(Locale.ROOT).getBytes(java.nio.charset.StandardCharsets.US_ASCII);
     }
 
     private static byte[] md5(byte[] data) {
