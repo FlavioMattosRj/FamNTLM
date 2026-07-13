@@ -1,5 +1,6 @@
 package br.nom.mattos.flavio.famntlm.proxy;
 
+import br.nom.mattos.flavio.famntlm.config.AccessControl;
 import br.nom.mattos.flavio.famntlm.config.Config;
 import br.nom.mattos.flavio.famntlm.log.AsyncRequestLog;
 import br.nom.mattos.flavio.famntlm.ntlm.Credentials;
@@ -29,6 +30,7 @@ public final class ProxyServer {
     private final Credentials credentials;
     private final AsyncRequestLog log;
     private final NtlmProxyClient proxyClient;
+    private final AccessControl acl;
 
     private final List<ServerSocket> serverSockets = new ArrayList<>();
     private final List<Thread> acceptors = new ArrayList<>();
@@ -41,6 +43,8 @@ public final class ProxyServer {
         this.credentials = credentials;
         this.log = log;
         this.proxyClient = new NtlmProxyClient(config, credentials, 10000, 30000);
+        this.acl = AccessControl.compile(config.acl,
+                msg -> log.log("[acl] ignoring invalid rule: " + msg));
         int max = config.magicTest ? 1 : 256;
         this.pool = new ThreadPoolExecutor(16, max, 60, TimeUnit.SECONDS,
                 new SynchronousQueue<>(), daemonFactory(),
@@ -84,12 +88,26 @@ public final class ProxyServer {
         while (running) {
             try {
                 Socket client = ss.accept();
+                InetAddress peer = client.getInetAddress();
+                if (peer == null || !acl.isAllowed(peer)) {
+                    log.log("[denied] " + (peer != null ? peer.getHostAddress() : "unknown")
+                            + "  (blocked by ACL)");
+                    closeQuietly(client);
+                    continue;
+                }
                 pool.execute(new ProxyConnection(client, config, proxyClient, log));
             } catch (IOException e) {
                 if (running) {
                     log.log("[accept error] " + e.getMessage());
                 }
             }
+        }
+    }
+
+    private static void closeQuietly(Socket socket) {
+        try {
+            socket.close();
+        } catch (IOException ignore) {
         }
     }
 

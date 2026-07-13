@@ -18,7 +18,9 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -96,6 +98,7 @@ public final class FamNTLM {
     }
 
     private static void startProxy(Config cfg, Credentials credentials) throws IOException {
+        warnUnsupportedDirectives(cfg);
         AsyncRequestLog log = new AsyncRequestLog(System.out);
         ProxyServer server = new ProxyServer(cfg, credentials, log);
         CountDownLatch stopLatch = new CountDownLatch(1);
@@ -132,6 +135,52 @@ public final class FamNTLM {
         server.shutdown();
         removePidFile(cfg);
         log.shutdown();
+    }
+
+    /**
+     * Warn loudly about configuration that is parsed but not yet enforced, so the
+     * config never creates a false sense of security or compatibility. Allow/Deny
+     * ACLs ARE enforced (see {@code AccessControl}); the directives listed here
+     * are not, and {@code Gateway} without an ACL is an open proxy.
+     */
+    private static void warnUnsupportedDirectives(Config cfg) {
+        List<String> ignored = new ArrayList<>();
+        if (!cfg.noProxy.isEmpty()) {
+            ignored.add("NoProxy - matching hosts are NOT bypassed; traffic still goes through the parent proxy");
+        }
+        if (!cfg.tunnels.isEmpty()) {
+            ignored.add("Tunnel - no local forwarding port is opened");
+        }
+        if (!cfg.socks5.isEmpty() || !cfg.socks5Users.isEmpty()) {
+            ignored.add("SOCKS5Proxy/SOCKS5User - no SOCKS5 listener is opened");
+        }
+        if (!cfg.headers.isEmpty()) {
+            ignored.add("Header - custom headers are NOT injected into forwarded requests");
+        }
+        if (cfg.ntlmToBasic) {
+            ignored.add("NTLMToBasic - downstream Basic authentication is NOT offered");
+        }
+        if (cfg.isaScannerSize != null || cfg.isaScannerAgent != null) {
+            ignored.add("ISAScannerSize/ISAScannerAgent - the ISA scanner plugin is not implemented");
+        }
+
+        if (!ignored.isEmpty()) {
+            System.err.println("famntlm: WARNING - the following configured directives are NOT enforced"
+                    + " and will be ignored:");
+            for (String s : ignored) {
+                System.err.println("    - " + s);
+            }
+        }
+
+        if (cfg.gateway && cfg.acl.isEmpty()) {
+            System.err.println("famntlm: SECURITY WARNING - Gateway is enabled but no Allow/Deny ACL is"
+                    + " configured.");
+            System.err.println("    The proxy will listen on all interfaces (0.0.0.0) and forward ANY"
+                    + " client's requests");
+            System.err.println("    using your NTLM credentials (open proxy). Add Allow/Deny rules,"
+                    + " bind Listen to a");
+            System.err.println("    specific address, or restrict the port at the firewall.");
+        }
     }
 
     /**
