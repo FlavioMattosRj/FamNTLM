@@ -38,13 +38,12 @@ public final class ProxyServer {
 
     private final ThreadPoolExecutor pool;
 
-    public ProxyServer(Config config, Credentials credentials, AsyncRequestLog log) {
+    public ProxyServer(Config config, Credentials credentials, AsyncRequestLog log, AccessControl acl) {
         this.config = config;
         this.credentials = credentials;
         this.log = log;
+        this.acl = acl;
         this.proxyClient = new NtlmProxyClient(config, credentials, 10000, 30000);
-        this.acl = AccessControl.compile(config.acl,
-                msg -> log.log("[acl] ignoring invalid rule: " + msg));
         int max = config.magicTest ? 1 : 256;
         this.pool = new ThreadPoolExecutor(16, max, 60, TimeUnit.SECONDS,
                 new SynchronousQueue<>(), daemonFactory(),

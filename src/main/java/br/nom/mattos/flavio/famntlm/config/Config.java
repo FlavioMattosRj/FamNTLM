@@ -103,6 +103,8 @@ public final class Config {
     public boolean verbose;      // -v
     public boolean fullLog;      // --full-log (FamNTLM extension): never drop log lines,
                                  // apply backpressure instead of counted drops
+    public boolean allowOpenProxy; // --allow-open-proxy (FamNTLM extension): explicitly permit
+                                   // a non-loopback listener with no restricting ACL
     public boolean magicTest;    // -M
     public String magicTestUrl;
 

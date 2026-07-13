@@ -1,5 +1,6 @@
 package br.nom.mattos.flavio.famntlm;
 
+import br.nom.mattos.flavio.famntlm.config.AccessControl;
 import br.nom.mattos.flavio.famntlm.config.CommandLine;
 import br.nom.mattos.flavio.famntlm.config.Config;
 import br.nom.mattos.flavio.famntlm.config.ConfigParser;
@@ -105,8 +106,9 @@ public final class FamNTLM {
 
     private static void startProxy(Config cfg, Credentials credentials) throws IOException {
         warnUnsupportedDirectives(cfg);
+        AccessControl acl = buildAndValidateAcl(cfg); // may refuse to start (System.exit)
         AsyncRequestLog log = new AsyncRequestLog(System.out, LOG_CAPACITY, cfg.fullLog);
-        ProxyServer server = new ProxyServer(cfg, credentials, log);
+        ProxyServer server = new ProxyServer(cfg, credentials, log, acl);
         CountDownLatch stopLatch = new CountDownLatch(1);
 
         ControlServer control = new ControlServer(ControlServer.port(), command -> {
@@ -148,7 +150,8 @@ public final class FamNTLM {
      * Warn loudly about configuration that is parsed but not yet enforced, so the
      * config never creates a false sense of security or compatibility. Allow/Deny
      * ACLs ARE enforced (see {@code AccessControl}); the directives listed here
-     * are not, and {@code Gateway} without an ACL is an open proxy.
+     * are not. The open-proxy check lives in {@link #buildAndValidateAcl}, which
+     * can refuse to start rather than merely warn.
      */
     private static void warnUnsupportedDirectives(Config cfg) {
         List<String> ignored = new ArrayList<>();
@@ -178,16 +181,56 @@ public final class FamNTLM {
                 System.err.println("    - " + s);
             }
         }
+    }
 
-        if (listensPublicly(cfg) && cfg.acl.isEmpty()) {
-            System.err.println("famntlm: SECURITY WARNING - the proxy will listen on a non-loopback"
-                    + " address but no Allow/Deny ACL is configured.");
-            System.err.println("    Any host that can reach the port will be able to forward requests"
-                    + " using your NTLM");
-            System.err.println("    credentials (open proxy). Add Allow/Deny rules, bind Listen to a"
-                    + " loopback address,");
-            System.err.println("    or restrict the port at the firewall.");
+    /**
+     * Build the access-control policy and enforce a fail-closed startup contract:
+     * <ul>
+     *   <li>any invalid ACL rule is fatal — a rule we cannot honour is a security
+     *       hole, and (unlike a warning) it must not be silently ignored;</li>
+     *   <li>a non-loopback listener with no ACL is refused unless the operator
+     *       opts in with {@code --allow-open-proxy};</li>
+     *   <li>on a public listener the no-match default becomes <b>deny</b>, so a
+     *       whitelist without a trailing {@code Deny *} still fails closed.</li>
+     * </ul>
+     * Loopback-only deployments keep CNTLM-compatible allow-by-default behaviour.
+     */
+    private static AccessControl buildAndValidateAcl(Config cfg) {
+        boolean publicListener = listensPublicly(cfg);
+        boolean defaultAllow = !publicListener || cfg.allowOpenProxy;
+
+        List<String> errors = new ArrayList<>();
+        AccessControl acl = AccessControl.compile(cfg.acl, defaultAllow, errors::add);
+
+        if (!errors.isEmpty()) {
+            System.err.println("famntlm: refusing to start - invalid ACL rule(s) (a rule that cannot"
+                    + " be honoured is a security hole; fix or remove it):");
+            for (String e : errors) {
+                System.err.println("    - " + e);
+            }
+            System.exit(2);
         }
+
+        if (publicListener && acl.isEmpty() && !cfg.allowOpenProxy) {
+            System.err.println("famntlm: refusing to start - a non-loopback listener is configured but"
+                    + " no Allow/Deny ACL is present.");
+            System.err.println("    This would be an open proxy, forwarding any client's requests using"
+                    + " your NTLM credentials.");
+            System.err.println("    Add Allow/Deny rules, bind Listen to a loopback address, or pass"
+                    + " --allow-open-proxy to");
+            System.err.println("    intentionally run an open proxy.");
+            System.exit(2);
+        }
+
+        if (publicListener && cfg.allowOpenProxy) {
+            System.err.println("famntlm: SECURITY WARNING - running as an OPEN PROXY"
+                    + " (--allow-open-proxy): any host that can");
+            System.err.println("    reach a non-loopback listener can forward requests using your NTLM"
+                    + " credentials. Make sure");
+            System.err.println("    the port is firewalled to trusted networks.");
+        }
+
+        return acl;
     }
 
     /**
@@ -526,8 +569,10 @@ public final class FamNTLM {
         o.println("  -w <host>      Workstation name");
         o.println();
         o.println("FamNTLM extensions:");
-        o.println("  --full-log     Never drop log lines: apply backpressure instead of dropping");
-        o.println("                 under load (default is a bounded buffer that drops+counts).");
+        o.println("  --full-log         Never drop log lines: apply backpressure instead of dropping");
+        o.println("                     under load (default is a bounded buffer that drops+counts).");
+        o.println("  --allow-open-proxy Permit a non-loopback listener with no restricting ACL.");
+        o.println("                     Without it, such a config refuses to start (open-proxy guard).");
         o.println();
         o.println("Default config: " + String.join(", ", ConfigParser.defaultLocations()));
         o.println("Stop a running instance: famntlm stop   (control port " + ControlServer.port() + ")");

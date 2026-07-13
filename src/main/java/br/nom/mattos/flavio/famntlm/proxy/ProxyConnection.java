@@ -62,7 +62,7 @@ public final class ProxyConnection implements Runnable {
     private void handleConnect(String peer, String target) throws IOException {
         if (config.proxies.isEmpty()) {
             writeStatus(client, 502, "No parent proxy configured");
-            log.log("502   " + peer + "  CONNECT " + target + "  (no proxy)");
+            log.log("502   " + peer + "  CONNECT " + logTarget(target) + "  (no proxy)");
             return;
         }
         IOException last = null;
@@ -70,7 +70,7 @@ public final class ProxyConnection implements Runnable {
             try {
                 Socket upstream = proxyClient.openTunnel(proxy, target);
                 writeRaw(client, "HTTP/1.1 200 Connection established\r\n\r\n");
-                log.log("200   " + peer + "  CONNECT " + target + "  via " + proxy);
+                log.log("200   " + peer + "  CONNECT " + logTarget(target) + "  via " + proxy);
                 client.setSoTimeout(0);   // tunnels may idle for long periods
                 upstream.setSoTimeout(0);
                 Relay.pump(client, upstream);
@@ -80,7 +80,7 @@ public final class ProxyConnection implements Runnable {
             }
         }
         writeStatus(client, 502, "Bad Gateway");
-        log.log("502   " + peer + "  CONNECT " + target + "  " + (last != null ? last.getMessage() : ""));
+        log.log("502   " + peer + "  CONNECT " + logTarget(target) + "  " + (last != null ? last.getMessage() : ""));
     }
 
     private void handlePlain(String peer, HttpHead head, InputStream in, String method, String target)
@@ -148,10 +148,41 @@ public final class ProxyConnection implements Runnable {
         return null;
     }
 
-    /** Strip the query string from a logged URL so tokens/secrets are not recorded. */
+    /**
+     * Sanitize a request target for logging so it cannot leak secrets or tamper
+     * with the log stream: control characters (incl. CR/LF and ANSI escapes) are
+     * neutralised, any {@code user:pass@} userinfo is removed, and the query
+     * string is dropped. The path is kept for operability; secrets deliberately
+     * placed in a path cannot be told apart from a legitimate path.
+     */
     private static String logTarget(String target) {
-        int q = target.indexOf('?');
-        return q >= 0 ? target.substring(0, q) : target;
+        String t = stripControl(target);
+        int q = t.indexOf('?');
+        if (q >= 0) {
+            t = t.substring(0, q);
+        }
+        // Drop userinfo: scheme://user:pass@host/path -> scheme://host/path
+        int scheme = t.indexOf("://");
+        if (scheme >= 0) {
+            int authStart = scheme + 3;
+            int slash = t.indexOf('/', authStart);
+            int authEnd = slash >= 0 ? slash : t.length();
+            int at = t.lastIndexOf('@', authEnd - 1);
+            if (at >= authStart) {
+                t = t.substring(0, authStart) + t.substring(at + 1);
+            }
+        }
+        return t;
+    }
+
+    /** Replace control characters (&lt; 0x20 and 0x7F) with '?' to prevent log injection. */
+    private static String stripControl(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            sb.append(c < 0x20 || c == 0x7F ? '?' : c);
+        }
+        return sb.toString();
     }
 
     private static byte[] readBody(HttpHead head, InputStream in) throws IOException {

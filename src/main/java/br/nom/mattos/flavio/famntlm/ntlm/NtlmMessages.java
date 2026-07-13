@@ -57,7 +57,10 @@ public final class NtlmMessages {
         if (msg.length >= 48) {
             int tiLen = readShort(msg, 40);
             int tiOffset = readInt(msg, 44);
-            if (tiLen > 0 && tiOffset + tiLen <= msg.length) {
+            // Validate without overflow (tiOffset is a signed int and may be
+            // negative or huge in a malformed challenge) before copyOfRange.
+            if (tiLen > 0 && tiOffset >= 0 && tiOffset <= msg.length
+                    && tiLen <= msg.length - tiOffset) {
                 targetInfo = Arrays.copyOfRange(msg, tiOffset, tiOffset + tiLen);
             }
         }

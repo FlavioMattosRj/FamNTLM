@@ -38,17 +38,26 @@ public final class AccessControl {
     }
 
     private final List<Rule> rules;
+    private final boolean defaultAllow;
 
-    private AccessControl(List<Rule> rules) {
+    private AccessControl(List<Rule> rules, boolean defaultAllow) {
         this.rules = rules;
+        this.defaultAllow = defaultAllow;
     }
 
     /**
      * Compile parsed ACL rules into a matcher. Each invalid spec is passed to
      * {@code onError} (may be {@code null}) with a human-readable reason and then
-     * skipped, so one bad line does not disable the rest of the policy.
+     * skipped, so one bad line does not disable the rest of the policy — callers
+     * that require fail-closed behaviour should treat any reported error as fatal.
+     *
+     * @param defaultAllow the decision when no rule matches. Loopback-only
+     *                     deployments pass {@code true} (CNTLM-compatible); public
+     *                     listeners pass {@code false} so a whitelist without a
+     *                     trailing {@code Deny *} still fails closed.
      */
-    public static AccessControl compile(List<Config.AclRule> acl, Consumer<String> onError) {
+    public static AccessControl compile(List<Config.AclRule> acl, boolean defaultAllow,
+                                        Consumer<String> onError) {
         List<Rule> compiled = new ArrayList<>();
         for (Config.AclRule r : acl) {
             try {
@@ -59,7 +68,7 @@ public final class AccessControl {
                 }
             }
         }
-        return new AccessControl(compiled);
+        return new AccessControl(compiled, defaultAllow);
     }
 
     private static Rule parse(Config.AclRule r) throws UnknownHostException {
@@ -139,7 +148,7 @@ public final class AccessControl {
         return out;
     }
 
-    /** True when {@code addr} is permitted by the policy (empty policy allows all). */
+    /** True when {@code addr} is permitted; first matching rule wins, else the default. */
     public boolean isAllowed(InetAddress addr) {
         byte[] a = addr.getAddress();
         for (Rule r : rules) {
@@ -147,7 +156,7 @@ public final class AccessControl {
                 return r.allow;
             }
         }
-        return true; // CNTLM default: allow when nothing matched
+        return defaultAllow; // no rule matched
     }
 
     private static boolean matches(Rule r, byte[] addr) {

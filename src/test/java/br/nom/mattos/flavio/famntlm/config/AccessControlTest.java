@@ -17,11 +17,15 @@ import org.junit.Test;
 public class AccessControlTest {
 
     private static AccessControl acl(Config.AclRule... rules) {
+        return acl(true, rules);
+    }
+
+    private static AccessControl acl(boolean defaultAllow, Config.AclRule... rules) {
         List<Config.AclRule> list = new ArrayList<>();
         for (Config.AclRule r : rules) {
             list.add(r);
         }
-        return AccessControl.compile(list, null);
+        return AccessControl.compile(list, defaultAllow, null);
     }
 
     private static Config.AclRule allow(String spec) {
@@ -101,7 +105,7 @@ public class AccessControlTest {
         List<Config.AclRule> rules = new ArrayList<>();
         rules.add(new Config.AclRule(true, "10.0.0.0/ffff:ffff:ffff::"));
         rules.add(deny("*"));
-        AccessControl acl = AccessControl.compile(rules, errors::add);
+        AccessControl acl = AccessControl.compile(rules, true, errors::add);
 
         assertEquals(1, errors.size());
         // The bad rule was skipped and matching must not throw for any client.
@@ -115,10 +119,27 @@ public class AccessControlTest {
         List<Config.AclRule> rules = new ArrayList<>();
         rules.add(new Config.AclRule(true, "192.168.0.0/999")); // prefix out of range
         rules.add(deny("*"));
-        AccessControl acl = AccessControl.compile(rules, errors::add);
+        AccessControl acl = AccessControl.compile(rules, true, errors::add);
 
         assertEquals(1, errors.size());
         // The bad Allow was skipped, so Deny * governs and blocks everyone.
         assertFalse(allowed(acl, "192.168.1.1"));
+    }
+
+    @Test
+    public void defaultDenyMakesWhitelistFailClosed() throws Exception {
+        // A public listener (defaultAllow=false) with only an Allow rule must deny
+        // everyone outside it even without a trailing Deny *.
+        AccessControl acl = acl(false, allow("192.168.0.0/16"));
+        assertTrue(allowed(acl, "192.168.1.1"));
+        assertFalse(allowed(acl, "8.8.8.8"));
+    }
+
+    @Test
+    public void defaultDenyWithEmptyPolicyBlocksEverything() throws Exception {
+        AccessControl acl = acl(false);
+        assertTrue(acl.isEmpty());
+        assertFalse(allowed(acl, "127.0.0.1"));
+        assertFalse(allowed(acl, "10.0.0.5"));
     }
 }

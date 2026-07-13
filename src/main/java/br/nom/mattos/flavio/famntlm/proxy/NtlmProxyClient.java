@@ -62,7 +62,7 @@ public final class NtlmProxyClient {
             }
             drainBody(in, resp);
 
-            NtlmMessages.Challenge challenge = NtlmMessages.parseType2(Base64.getDecoder().decode(challengeHeader));
+            NtlmMessages.Challenge challenge = parseChallenge(challengeHeader);
             byte[] type3 = NtlmMessages.type3(credentials, challenge, config.flags);
             sendConnect(out, targetHostPort, "NTLM " + b64(type3));
 
@@ -109,8 +109,7 @@ public final class NtlmProxyClient {
                     throw new IOException("Parent proxy did not offer NTLM: " + resp.firstLine);
                 }
                 drainBody(in, resp);
-                NtlmMessages.Challenge challenge =
-                        NtlmMessages.parseType2(Base64.getDecoder().decode(challengeHeader));
+                NtlmMessages.Challenge challenge = parseChallenge(challengeHeader);
                 byte[] type3 = NtlmMessages.type3(credentials, challenge, config.flags);
                 sendPlain(out, requestLine, headers, "NTLM " + b64(type3),
                         body == null ? 0 : body.length, body, false);
@@ -144,6 +143,21 @@ public final class NtlmProxyClient {
             out.write(body);
         }
         out.flush();
+    }
+
+    /**
+     * Decode and parse a parent proxy's NTLM Type-2 challenge, converting any
+     * malformed input (bad Base64, truncated/oversized fields) into an
+     * {@code IOException}. That way a hostile or broken parent triggers the
+     * normal per-proxy failover path instead of an unchecked exception that would
+     * kill the worker thread.
+     */
+    private NtlmMessages.Challenge parseChallenge(String challengeHeader) throws IOException {
+        try {
+            return NtlmMessages.parseType2(Base64.getDecoder().decode(challengeHeader));
+        } catch (RuntimeException e) {
+            throw new IOException("malformed NTLM challenge from parent proxy: " + e);
+        }
     }
 
     private static boolean isHopByHop(String headerLine) {

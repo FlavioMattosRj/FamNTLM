@@ -23,6 +23,7 @@ public final class CommandLine {
     public boolean gateway;        // -g
     public boolean ntlmToBasic;    // -B
     public boolean fullLog;        // --full-log (FamNTLM extension)
+    public boolean allowOpenProxy; // --allow-open-proxy (FamNTLM extension)
 
     public String username;        // -u  (user[@domain])
     public String cliDomain;       // -d
@@ -64,6 +65,8 @@ public final class CommandLine {
                 // --list-config is intercepted earlier, before parse() is reached.
                 if (arg.equals("--full-log")) {
                     c.fullLog = true;
+                } else if (arg.equals("--allow-open-proxy")) {
+                    c.allowOpenProxy = true;
                 } else {
                     throw new IllegalArgumentException("Unknown option: " + arg);
                 }
@@ -160,6 +163,7 @@ public final class CommandLine {
         if (gateway) cfg.gateway = true;
         if (ntlmToBasic) cfg.ntlmToBasic = true;
         if (fullLog) cfg.fullLog = true;
+        if (allowOpenProxy) cfg.allowOpenProxy = true;
         if (foreground) cfg.foreground = true;
         if (verbose) cfg.verbose = true;
 
