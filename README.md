@@ -183,6 +183,9 @@ behaviour pending.
   [Access control & security](#access-control--security)).
 - **Lifecycle**: a loopback control channel (default port 3129, override with
   `FAMNTLM_CONTROL_PORT`) handles `stop`/`status` cross-platform without POSIX
-  signals; a JVM shutdown hook also triggers graceful shutdown.
+  signals; a JVM shutdown hook also triggers graceful shutdown. Connections are
+  handled off the accept thread with a read timeout, a bounded command length,
+  and capped concurrency, so a local client cannot wedge the channel by stalling
+  or flooding it.
 - **Crypto**: pure-Java MD4 for the NT hash (not guaranteed by JCE providers);
   DES-based LM hash; HMAC-MD5 for NTLMv2. Hash and hex formats match CNTLM.
