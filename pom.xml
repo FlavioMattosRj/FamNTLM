@@ -49,6 +49,32 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>build-independent-mvp</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <jar destfile="${project.build.directory}/mvp.jar"
+                                     basedir="${project.build.outputDirectory}"
+                                     includes="br/nom/mattos/flavio/famntlm/MVP*.class">
+                                    <manifest>
+                                        <attribute name="Main-Class"
+                                                   value="br.nom.mattos.flavio.famntlm.MVP"/>
+                                    </manifest>
+                                </jar>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>

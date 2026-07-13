@@ -17,6 +17,23 @@ mvn clean package
 Produces a self-contained executable JAR with all dependencies:
 `target/famntlm.jar`.
 
+### Independent privacy-safe connectivity MVP
+
+The build also creates `target/mvp.jar`, a self-contained probe implemented only
+by `MVP.java` and its nested classes. It reads an existing CNTLM hash profile,
+authenticates directly with the configured parent proxy, establishes an HTTPS
+tunnel, verifies TLS, and requests the target URL.
+
+```text
+java -jar target\mvp.jar -c C:\path\to\cntlm.ini https://registry.yarnpkg.com/
+```
+
+Its output contains only stable phase/error codes, HTTP status codes, and NTLM
+flags. It never echoes configuration values, identities, hashes, paths, proxy or
+target addresses, authorization tokens, challenges, or exception messages. The
+MVP accepts CNTLM `PassLM`, `PassNT`, and `PassNTLMv2` profiles; it intentionally
+does not accept a plaintext `Password` fallback.
+
 ## Usage
 
 ```
