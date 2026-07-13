@@ -115,7 +115,7 @@ public final class NtlmMessages {
             }
             case NT: {
                 ntResp = NtlmCrypto.desl(cred.ntHash, challenge.serverChallenge);
-                lmResp = ntResp;
+                lmResp = new byte[0];
                 break;
             }
             case NTLM: {
@@ -132,31 +132,38 @@ public final class NtlmMessages {
                 throw new IllegalStateException("Unsupported auth: " + cred.auth);
         }
 
-        boolean unicode = (challenge.flags & NtlmFlags.NEGOTIATE_UNICODE) != 0;
-        byte[] domain = encode(cred.domain, unicode);
-        byte[] user = encode(cred.username, unicode);
-        byte[] workstation = encode(cred.workstation, unicode);
+        // Match CNTLM's identity encoding exactly: every dialect with an NT
+        // response uses Unicode, with domain/workstation uppercased. LM-only
+        // authentication uses uppercase OEM strings.
+        boolean unicode = cred.auth != AuthType.LM;
+        byte[] domain = encode(upper(cred.domain), unicode);
+        byte[] user = encode(unicode ? cred.username : upper(cred.username), unicode);
+        byte[] workstation = encode(upper(cred.workstation), unicode);
 
         int flags = authenticateFlags(cred.auth, challenge.flags, flagOverride);
 
-        // Header is 64 bytes: six security buffers + flags.
-        int offset = 64;
+        // Header is 64 bytes. Match CNTLM's payload layout exactly:
+        // domain, username, workstation, LM response, NT response.
+        int domainOffset = 64;
+        int userOffset = domainOffset + domain.length;
+        int workstationOffset = userOffset + user.length;
+        int lmOffset = workstationOffset + workstation.length;
+        int ntOffset = lmOffset + lmResp.length;
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(SIGNATURE, 0, SIGNATURE.length);
         writeInt(out, 3);
-        offset = writeSecurityBuffer(out, lmResp.length, offset);
-        offset = writeSecurityBuffer(out, ntResp.length, offset);
-        offset = writeSecurityBuffer(out, domain.length, offset);
-        offset = writeSecurityBuffer(out, user.length, offset);
-        offset = writeSecurityBuffer(out, workstation.length, offset);
-        writeSecurityBuffer(out, 0, offset); // session key (empty)
+        writeSecurityBufferAt(out, lmResp.length, lmOffset);
+        writeSecurityBufferAt(out, ntResp.length, ntOffset);
+        writeSecurityBufferAt(out, domain.length, domainOffset);
+        writeSecurityBufferAt(out, user.length, userOffset);
+        writeSecurityBufferAt(out, workstation.length, workstationOffset);
+        writeSecurityBufferAt(out, 0, ntOffset + ntResp.length); // session key (empty)
         writeInt(out, flags);
-        // Payload in the same order as the security buffers were declared.
-        out.write(lmResp, 0, lmResp.length);
-        out.write(ntResp, 0, ntResp.length);
         out.write(domain, 0, domain.length);
         out.write(user, 0, user.length);
         out.write(workstation, 0, workstation.length);
+        out.write(lmResp, 0, lmResp.length);
+        out.write(ntResp, 0, ntResp.length);
         return out.toByteArray();
     }
 
@@ -178,49 +185,28 @@ public final class NtlmMessages {
     }
 
     /**
-     * Flags to put in the Type-3 (Authenticate) message. We mirror the flags the
-     * server negotiated in its challenge, but only the ones we actually implement:
-     * flags such as KEY_EXCHANGE, SIGN, SEAL and VERSION are stripped, because we
-     * neither send a session key nor sign/seal, and echoing them back makes strict
-     * proxies reject the response.
-     *
-     * <p>Crucially, {@code NEGOTIATE_NTLM2} (extended session security) is only
-     * advertised for the dialects that use it (NTLMv2 / NTLM2SR). For classic
-     * {@code NTLM}/{@code NT}/{@code LM} it must be cleared even when the challenge
-     * offered it, otherwise the server verifies the response with the wrong scheme
-     * and returns 407. The charset bit is forced to match how the strings were
-     * encoded. An explicit {@code Flags} override wins.
+     * CNTLM copies the flags negotiated by the proxy from Type 2 into Type 3.
+     * The manual Flags override applies to Type 1, not to the challenge response.
      */
     public static int authenticateFlags(AuthType auth, int challengeFlags, Integer flagOverride) {
-        if (flagOverride != null) {
-            return flagOverride;
-        }
-        int supported = NtlmFlags.NEGOTIATE_UNICODE | NtlmFlags.NEGOTIATE_OEM
-                | NtlmFlags.REQUEST_TARGET | NtlmFlags.NEGOTIATE_NTLM
-                | NtlmFlags.NEGOTIATE_ALWAYS_SIGN | NtlmFlags.NEGOTIATE_TARGET_INFO
-                | NtlmFlags.NEGOTIATE_128 | NtlmFlags.NEGOTIATE_56;
-        if (auth == AuthType.NTLMV2 || auth == AuthType.NTLM2SR) {
-            supported |= NtlmFlags.NEGOTIATE_NTLM2;
-        }
-        int flags = challengeFlags & supported;
-        if ((challengeFlags & NtlmFlags.NEGOTIATE_UNICODE) != 0) {
-            flags |= NtlmFlags.NEGOTIATE_UNICODE;
-            flags &= ~NtlmFlags.NEGOTIATE_OEM;
-        } else {
-            flags |= NtlmFlags.NEGOTIATE_OEM;
-            flags &= ~NtlmFlags.NEGOTIATE_UNICODE;
-        }
-        return flags;
+        return challengeFlags;
     }
 
     private static int defaultType1Flags(AuthType auth) {
-        int flags = NtlmFlags.NEGOTIATE_UNICODE | NtlmFlags.NEGOTIATE_OEM
-                | NtlmFlags.REQUEST_TARGET | NtlmFlags.NEGOTIATE_NTLM
-                | NtlmFlags.NEGOTIATE_ALWAYS_SIGN;
-        if (auth == AuthType.NTLMV2 || auth == AuthType.NTLM2SR) {
-            flags |= NtlmFlags.NEGOTIATE_NTLM2;
+        switch (auth) {
+            case NTLMV2:
+                return 0xa208b205;
+            case NTLM2SR:
+                return 0xa208b207;
+            case NT:
+                return 0x0000b205;
+            case NTLM:
+                return 0x0000b207;
+            case LM:
+                return 0x0000b206;
+            default:
+                throw new IllegalStateException("Unsupported auth: " + auth);
         }
-        return flags;
     }
 
     private static int writeSecurityBuffer(ByteArrayOutputStream out, int length, int offset) {
@@ -228,6 +214,12 @@ public final class NtlmMessages {
         writeShort(out, length);
         writeInt(out, offset);
         return offset + length;
+    }
+
+    private static void writeSecurityBufferAt(ByteArrayOutputStream out, int length, int offset) {
+        writeShort(out, length);
+        writeShort(out, length);
+        writeInt(out, offset);
     }
 
     private static byte[] encode(String s, boolean unicode) {
@@ -249,6 +241,10 @@ public final class NtlmMessages {
             s = "";
         }
         return s.toUpperCase(Locale.ROOT).getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+    }
+
+    private static String upper(String s) {
+        return s == null ? "" : s.toUpperCase(Locale.ROOT);
     }
 
     private static byte[] md5(byte[] data) {

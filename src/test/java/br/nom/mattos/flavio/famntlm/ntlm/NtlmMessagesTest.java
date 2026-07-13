@@ -118,56 +118,31 @@ public class NtlmMessagesTest {
     }
 
     @Test
-    public void type3FlagsStripUnsupportedButKeepNegotiated() {
-        int UNICODE = 0x00000001, OEM = 0x00000002, NTLM = 0x00000200, ALWAYS_SIGN = 0x00008000;
-        int NTLM2 = 0x00080000, TARGET_INFO = 0x00800000, N128 = 0x20000000;
-        int SIGN = 0x00000010, SEAL = 0x00000020, VERSION = 0x02000000, KEY_EXCHANGE = 0x40000000;
-        int challenge = UNICODE | NTLM | ALWAYS_SIGN | NTLM2 | TARGET_INFO | N128
-                | SIGN | SEAL | VERSION | KEY_EXCHANGE;
-
-        int f = NtlmMessages.authenticateFlags(AuthType.NTLMV2, challenge, null);
-
-        // Negotiated flags we honour are kept.
-        assertTrue((f & UNICODE) != 0);
-        assertTrue((f & NTLM) != 0);
-        assertTrue((f & ALWAYS_SIGN) != 0);
-        assertTrue((f & NTLM2) != 0); // NTLMv2 uses extended session security
-        assertTrue((f & TARGET_INFO) != 0);
-        assertTrue((f & N128) != 0);
-        // Flags we do not implement are stripped (would make strict proxies reject).
-        assertEquals(0, f & SIGN);
-        assertEquals(0, f & SEAL);
-        assertEquals(0, f & VERSION);
-        assertEquals(0, f & KEY_EXCHANGE);
-        // Charset is consistent with unicode encoding.
-        assertEquals(0, f & OEM);
+    public void type3FlagsMatchCntlmAndEchoChallenge() {
+        int challenge = 0xe2888237;
+        assertEquals(challenge,
+                NtlmMessages.authenticateFlags(AuthType.NTLMV2, challenge, null));
+        assertEquals(challenge,
+                NtlmMessages.authenticateFlags(AuthType.NTLM, challenge, null));
     }
 
     @Test
-    public void type3FlagsClearNtlm2ForClassicNtlm() {
-        // Auth NTLM (NTLMv1) must NOT advertise extended session security, even
-        // when the challenge offers it, or the server verifies the wrong scheme.
-        int UNICODE = 0x00000001, NTLM = 0x00000200, NTLM2 = 0x00080000;
-        int challenge = UNICODE | NTLM | NTLM2;
-
-        assertEquals(0, NtlmMessages.authenticateFlags(AuthType.NTLM, challenge, null) & NTLM2);
-        assertEquals(0, NtlmMessages.authenticateFlags(AuthType.NT, challenge, null) & NTLM2);
-        assertEquals(0, NtlmMessages.authenticateFlags(AuthType.LM, challenge, null) & NTLM2);
-        // But the NTLM2-based dialects keep it.
-        assertTrue((NtlmMessages.authenticateFlags(AuthType.NTLMV2, challenge, null) & NTLM2) != 0);
-        assertTrue((NtlmMessages.authenticateFlags(AuthType.NTLM2SR, challenge, null) & NTLM2) != 0);
+    public void type3ClassicNtlmPreservesNegotiatedNtlm2FlagLikeCntlm() {
+        int challenge = 0x00080201;
+        assertEquals(challenge,
+                NtlmMessages.authenticateFlags(AuthType.NTLM, challenge, null));
     }
 
     @Test
-    public void type3FlagsUseOemWhenChallengeHasNoUnicode() {
-        int OEM = 0x00000002, NTLM = 0x00000200;
-        int f = NtlmMessages.authenticateFlags(AuthType.NTLM, OEM | NTLM, null);
-        assertTrue((f & OEM) != 0);
-        assertEquals(0, f & 0x00000001); // UNICODE not set
+    public void type3FlagsDoNotInventCharsetFlags() {
+        int challenge = 0x00000200;
+        assertEquals(challenge,
+                NtlmMessages.authenticateFlags(AuthType.NTLM, challenge, null));
     }
 
     @Test
-    public void type3FlagsOverrideWins() {
-        assertEquals(0x00088207, NtlmMessages.authenticateFlags(AuthType.NTLMV2, 0xFFFFFFFF, 0x00088207));
+    public void type3FlagsOverrideDoesNotReplaceNegotiatedChallenge() {
+        assertEquals(0xe2888237,
+                NtlmMessages.authenticateFlags(AuthType.NTLMV2, 0xe2888237, 0x00088207));
     }
 }
