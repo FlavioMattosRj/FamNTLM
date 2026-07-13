@@ -26,7 +26,10 @@ java -jar famntlm.jar status      # query a running instance
 java -jar famntlm.jar test [url]  # connectivity self-test (see below)
 ```
 
-Run `java -jar famntlm.jar -h` for the full option list.
+Run `java -jar famntlm.jar -h` for the full option list. Add `-v` (verbose) to
+print NTLM handshake diagnostics to stderr — the parent's challenge, the
+negotiated flags, and the flags sent back — which is the quickest way to debug a
+`407` from the parent proxy.
 
 Beyond the CNTLM-compatible options, FamNTLM adds two long options:
 

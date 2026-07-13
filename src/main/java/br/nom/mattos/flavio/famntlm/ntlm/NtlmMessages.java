@@ -114,7 +114,7 @@ public final class NtlmMessages {
         byte[] user = encode(cred.username, unicode);
         byte[] workstation = encode(cred.workstation, unicode);
 
-        int flags = flagOverride != null ? flagOverride : (challenge.flags);
+        int flags = authenticateFlags(challenge.flags, flagOverride);
 
         // Header is 64 bytes: six security buffers + flags.
         int offset = 64;
@@ -152,6 +152,34 @@ public final class NtlmMessages {
         blob.write(targetInfo, 0, targetInfo.length);
         writeInt(blob, 0);
         return blob.toByteArray();
+    }
+
+    /**
+     * Flags to put in the Type-3 (Authenticate) message. We mirror the flags the
+     * server negotiated in its challenge, but only the ones we actually implement:
+     * flags such as KEY_EXCHANGE, SIGN, SEAL and VERSION are stripped, because we
+     * neither send a session key nor sign/seal, and echoing them back makes strict
+     * proxies reject the response. The charset bit is forced to match how the
+     * strings were actually encoded. An explicit {@code Flags} override wins.
+     */
+    public static int authenticateFlags(int challengeFlags, Integer flagOverride) {
+        if (flagOverride != null) {
+            return flagOverride;
+        }
+        int supported = NtlmFlags.NEGOTIATE_UNICODE | NtlmFlags.NEGOTIATE_OEM
+                | NtlmFlags.REQUEST_TARGET | NtlmFlags.NEGOTIATE_NTLM
+                | NtlmFlags.NEGOTIATE_ALWAYS_SIGN | NtlmFlags.NEGOTIATE_NTLM2
+                | NtlmFlags.NEGOTIATE_TARGET_INFO
+                | NtlmFlags.NEGOTIATE_128 | NtlmFlags.NEGOTIATE_56;
+        int flags = challengeFlags & supported;
+        if ((challengeFlags & NtlmFlags.NEGOTIATE_UNICODE) != 0) {
+            flags |= NtlmFlags.NEGOTIATE_UNICODE;
+            flags &= ~NtlmFlags.NEGOTIATE_OEM;
+        } else {
+            flags |= NtlmFlags.NEGOTIATE_OEM;
+            flags &= ~NtlmFlags.NEGOTIATE_UNICODE;
+        }
+        return flags;
     }
 
     private static int defaultType1Flags(AuthType auth) {

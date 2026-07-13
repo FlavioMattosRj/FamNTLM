@@ -60,9 +60,16 @@ public final class NtlmProxyClient {
             if (challengeHeader == null) {
                 throw new IOException("Parent proxy did not offer NTLM: " + resp.firstLine);
             }
+            verbose("CONNECT %s: challenge %s (Content-Length=%s, Transfer-Encoding=%s)",
+                    targetHostPort, resp.firstLine, resp.header("Content-Length"),
+                    resp.header("Transfer-Encoding"));
             drainBody(in, resp);
 
             NtlmMessages.Challenge challenge = parseChallenge(challengeHeader);
+            verbose("Type-2 flags=0x%08x targetInfoLen=%d -> Type-3 flags=0x%08x auth=%s user=%s\\%s",
+                    challenge.flags, challenge.targetInfo.length,
+                    NtlmMessages.authenticateFlags(challenge.flags, config.flags),
+                    credentials.auth.label(), credentials.domain, credentials.username);
             byte[] type3 = NtlmMessages.type3(credentials, challenge, config.flags);
             sendConnect(out, targetHostPort, "NTLM " + b64(type3));
 
@@ -71,6 +78,7 @@ public final class NtlmProxyClient {
                 ok = true;
                 return socket;
             }
+            verbose("CONNECT %s: authentication rejected: %s", targetHostPort, finalResp.firstLine);
             throw new IOException("NTLM authentication failed: " + finalResp.firstLine);
         } finally {
             if (!ok) {
@@ -108,8 +116,15 @@ public final class NtlmProxyClient {
                 if (challengeHeader == null) {
                     throw new IOException("Parent proxy did not offer NTLM: " + resp.firstLine);
                 }
+                verbose("%s: challenge %s (Content-Length=%s, Transfer-Encoding=%s)",
+                        proxy, resp.firstLine, resp.header("Content-Length"),
+                        resp.header("Transfer-Encoding"));
                 drainBody(in, resp);
                 NtlmMessages.Challenge challenge = parseChallenge(challengeHeader);
+                verbose("Type-2 flags=0x%08x targetInfoLen=%d -> Type-3 flags=0x%08x auth=%s user=%s\\%s",
+                        challenge.flags, challenge.targetInfo.length,
+                        NtlmMessages.authenticateFlags(challenge.flags, config.flags),
+                        credentials.auth.label(), credentials.domain, credentials.username);
                 byte[] type3 = NtlmMessages.type3(credentials, challenge, config.flags);
                 sendPlain(out, requestLine, headers, "NTLM " + b64(type3),
                         body == null ? 0 : body.length, body, false);
@@ -157,6 +172,13 @@ public final class NtlmProxyClient {
             return NtlmMessages.parseType2(Base64.getDecoder().decode(challengeHeader));
         } catch (RuntimeException e) {
             throw new IOException("malformed NTLM challenge from parent proxy: " + e);
+        }
+    }
+
+    /** Print an NTLM handshake diagnostic line to stderr when running with -v. */
+    private void verbose(String fmt, Object... args) {
+        if (config.verbose) {
+            System.err.println("[ntlm] " + String.format(fmt, args));
         }
     }
 
