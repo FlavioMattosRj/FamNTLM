@@ -1,6 +1,7 @@
 package br.nom.mattos.flavio.famntlm.proxy;
 
 import br.nom.mattos.flavio.famntlm.config.Config;
+import br.nom.mattos.flavio.famntlm.config.NoProxyMatcher;
 import br.nom.mattos.flavio.famntlm.log.AsyncRequestLog;
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -22,12 +23,17 @@ public final class ProxyConnection implements Runnable {
     private final Socket client;
     private final Config config;
     private final NtlmProxyClient proxyClient;
+    private final DirectClient directClient;
+    private final NoProxyMatcher noProxy;
     private final AsyncRequestLog log;
 
-    public ProxyConnection(Socket client, Config config, NtlmProxyClient proxyClient, AsyncRequestLog log) {
+    public ProxyConnection(Socket client, Config config, NtlmProxyClient proxyClient,
+                           DirectClient directClient, NoProxyMatcher noProxy, AsyncRequestLog log) {
         this.client = client;
         this.config = config;
         this.proxyClient = proxyClient;
+        this.directClient = directClient;
+        this.noProxy = noProxy;
         this.log = log;
     }
 
@@ -60,6 +66,21 @@ public final class ProxyConnection implements Runnable {
     }
 
     private void handleConnect(String peer, String target) throws IOException {
+        HttpTarget t = HttpTarget.parseAuthority(target, 443);
+        if (t != null && noProxy.matches(t.host)) {
+            try {
+                Socket upstream = directClient.openDirectTunnel(t);
+                writeRaw(client, "HTTP/1.1 200 Connection established\r\n\r\n");
+                log.log("200   " + peer + "  CONNECT " + logTarget(target) + "  direct (NoProxy)");
+                client.setSoTimeout(0);
+                upstream.setSoTimeout(0);
+                Relay.pump(client, upstream);
+            } catch (IOException e) {
+                writeStatus(client, 502, "Bad Gateway");
+                log.log("502   " + peer + "  CONNECT " + logTarget(target) + "  direct: " + e.getMessage());
+            }
+            return;
+        }
         if (config.proxies.isEmpty()) {
             writeStatus(client, 502, "No parent proxy configured");
             log.log("502   " + peer + "  CONNECT " + logTarget(target) + "  (no proxy)");
@@ -95,6 +116,17 @@ public final class ProxyConnection implements Runnable {
         if (body == null) {
             writeStatus(client, 413, "Request Entity Too Large");
             log.log("413   " + peer + "  " + method + " " + logTarget(target) + "  (body too large)");
+            return;
+        }
+        HttpTarget t = HttpTarget.parseAbsolute(target);
+        if (t != null && noProxy.matches(t.host)) {
+            try {
+                directClient.forwardDirect(method, t, head.headerLines, body, client.getOutputStream());
+                log.log("200   " + peer + "  " + method + " " + logTarget(target) + "  direct (NoProxy)");
+            } catch (IOException e) {
+                writeStatus(client, 502, "Bad Gateway");
+                log.log("502   " + peer + "  " + method + " " + logTarget(target) + "  direct: " + e.getMessage());
+            }
             return;
         }
         if (config.proxies.isEmpty()) {

@@ -155,9 +155,6 @@ public final class FamNTLM {
      */
     private static void warnUnsupportedDirectives(Config cfg) {
         List<String> ignored = new ArrayList<>();
-        if (!cfg.noProxy.isEmpty()) {
-            ignored.add("NoProxy - matching hosts are NOT bypassed; traffic still goes through the parent proxy");
-        }
         if (!cfg.tunnels.isEmpty()) {
             ignored.add("Tunnel - no local forwarding port is opened");
         }

@@ -108,6 +108,11 @@ By default FamNTLM looks for (in order):
 Override with `-c <file>`. Command-line options always take precedence over the
 configuration file. A documented sample lives in [doc/cntlm.conf](doc/cntlm.conf).
 
+`NoProxy` hosts bypass the parent proxy and are reached **directly**. Patterns use
+CNTLM-style wildcards (`*` and `?`), are anchored and case-insensitive, and match
+the request hostname — e.g. `NoProxy localhost, 127.0.0.*, *.intranet.local`. This
+applies to both CONNECT (HTTPS) and plain HTTP requests.
+
 ## Access control & security
 
 `Allow` / `Deny` ACL rules are enforced on every accepted connection. Rules are
@@ -159,10 +164,10 @@ startup warning instead of failing silently.
 | Multiple parent proxies with failover | ✅ |
 | ACL (`Allow` / `Deny`) enforcement | ✅ enforced (first-match; public listeners fail closed) |
 | Open-proxy guard (refuses to start; `--allow-open-proxy` to override) | ✅ |
+| `NoProxy` direct-connect bypass | ✅ matched hosts reach the origin directly (CONNECT + plain HTTP) |
 | SOCKS5 proxy (`-O`) | ⏳ parsed, warns, not yet served |
 | Transparent tunnels (`Tunnel` / `-L`) | ⏳ parsed, warns, not yet served |
 | ISA scanner plugin (`-S` / `-G`) | ⏳ parsed, warns, not yet active |
-| `NoProxy` direct-connect bypass | ⏳ parsed, warns, not yet applied |
 | `Header` injection / `NTLMToBasic` | ⏳ parsed, warns, not yet applied |
 | Magic dialect detection (`-M`) | ⏳ parsed, not yet run |
 

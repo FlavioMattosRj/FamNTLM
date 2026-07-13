@@ -2,6 +2,7 @@ package br.nom.mattos.flavio.famntlm.proxy;
 
 import br.nom.mattos.flavio.famntlm.config.AccessControl;
 import br.nom.mattos.flavio.famntlm.config.Config;
+import br.nom.mattos.flavio.famntlm.config.NoProxyMatcher;
 import br.nom.mattos.flavio.famntlm.log.AsyncRequestLog;
 import br.nom.mattos.flavio.famntlm.ntlm.Credentials;
 import java.io.IOException;
@@ -30,6 +31,8 @@ public final class ProxyServer {
     private final Credentials credentials;
     private final AsyncRequestLog log;
     private final NtlmProxyClient proxyClient;
+    private final DirectClient directClient;
+    private final NoProxyMatcher noProxy;
     private final AccessControl acl;
 
     private final List<ServerSocket> serverSockets = new ArrayList<>();
@@ -44,6 +47,8 @@ public final class ProxyServer {
         this.log = log;
         this.acl = acl;
         this.proxyClient = new NtlmProxyClient(config, credentials, 10000, 30000);
+        this.directClient = new DirectClient(10000, 30000);
+        this.noProxy = NoProxyMatcher.compile(config.noProxy);
         int max = config.magicTest ? 1 : 256;
         this.pool = new ThreadPoolExecutor(16, max, 60, TimeUnit.SECONDS,
                 new SynchronousQueue<>(), daemonFactory(),
@@ -94,7 +99,7 @@ public final class ProxyServer {
                     closeQuietly(client);
                     continue;
                 }
-                pool.execute(new ProxyConnection(client, config, proxyClient, log));
+                pool.execute(new ProxyConnection(client, config, proxyClient, directClient, noProxy, log));
             } catch (IOException e) {
                 if (running) {
                     log.log("[accept error] " + e.getMessage());
