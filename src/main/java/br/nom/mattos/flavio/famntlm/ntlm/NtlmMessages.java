@@ -114,7 +114,7 @@ public final class NtlmMessages {
         byte[] user = encode(cred.username, unicode);
         byte[] workstation = encode(cred.workstation, unicode);
 
-        int flags = authenticateFlags(challenge.flags, flagOverride);
+        int flags = authenticateFlags(cred.auth, challenge.flags, flagOverride);
 
         // Header is 64 bytes: six security buffers + flags.
         int offset = 64;
@@ -159,18 +159,26 @@ public final class NtlmMessages {
      * server negotiated in its challenge, but only the ones we actually implement:
      * flags such as KEY_EXCHANGE, SIGN, SEAL and VERSION are stripped, because we
      * neither send a session key nor sign/seal, and echoing them back makes strict
-     * proxies reject the response. The charset bit is forced to match how the
-     * strings were actually encoded. An explicit {@code Flags} override wins.
+     * proxies reject the response.
+     *
+     * <p>Crucially, {@code NEGOTIATE_NTLM2} (extended session security) is only
+     * advertised for the dialects that use it (NTLMv2 / NTLM2SR). For classic
+     * {@code NTLM}/{@code NT}/{@code LM} it must be cleared even when the challenge
+     * offered it, otherwise the server verifies the response with the wrong scheme
+     * and returns 407. The charset bit is forced to match how the strings were
+     * encoded. An explicit {@code Flags} override wins.
      */
-    public static int authenticateFlags(int challengeFlags, Integer flagOverride) {
+    public static int authenticateFlags(AuthType auth, int challengeFlags, Integer flagOverride) {
         if (flagOverride != null) {
             return flagOverride;
         }
         int supported = NtlmFlags.NEGOTIATE_UNICODE | NtlmFlags.NEGOTIATE_OEM
                 | NtlmFlags.REQUEST_TARGET | NtlmFlags.NEGOTIATE_NTLM
-                | NtlmFlags.NEGOTIATE_ALWAYS_SIGN | NtlmFlags.NEGOTIATE_NTLM2
-                | NtlmFlags.NEGOTIATE_TARGET_INFO
+                | NtlmFlags.NEGOTIATE_ALWAYS_SIGN | NtlmFlags.NEGOTIATE_TARGET_INFO
                 | NtlmFlags.NEGOTIATE_128 | NtlmFlags.NEGOTIATE_56;
+        if (auth == AuthType.NTLMV2 || auth == AuthType.NTLM2SR) {
+            supported |= NtlmFlags.NEGOTIATE_NTLM2;
+        }
         int flags = challengeFlags & supported;
         if ((challengeFlags & NtlmFlags.NEGOTIATE_UNICODE) != 0) {
             flags |= NtlmFlags.NEGOTIATE_UNICODE;

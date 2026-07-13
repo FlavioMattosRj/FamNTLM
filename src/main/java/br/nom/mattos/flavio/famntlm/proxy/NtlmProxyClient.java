@@ -68,7 +68,7 @@ public final class NtlmProxyClient {
             NtlmMessages.Challenge challenge = parseChallenge(challengeHeader);
             verbose("Type-2 flags=0x%08x targetInfoLen=%d -> Type-3 flags=0x%08x auth=%s user=%s\\%s",
                     challenge.flags, challenge.targetInfo.length,
-                    NtlmMessages.authenticateFlags(challenge.flags, config.flags),
+                    NtlmMessages.authenticateFlags(credentials.auth, challenge.flags, config.flags),
                     credentials.auth.label(), credentials.domain, credentials.username);
             byte[] type3 = NtlmMessages.type3(credentials, challenge, config.flags);
             sendConnect(out, targetHostPort, "NTLM " + b64(type3));
@@ -123,7 +123,7 @@ public final class NtlmProxyClient {
                 NtlmMessages.Challenge challenge = parseChallenge(challengeHeader);
                 verbose("Type-2 flags=0x%08x targetInfoLen=%d -> Type-3 flags=0x%08x auth=%s user=%s\\%s",
                         challenge.flags, challenge.targetInfo.length,
-                        NtlmMessages.authenticateFlags(challenge.flags, config.flags),
+                        NtlmMessages.authenticateFlags(credentials.auth, challenge.flags, config.flags),
                         credentials.auth.label(), credentials.domain, credentials.username);
                 byte[] type3 = NtlmMessages.type3(credentials, challenge, config.flags);
                 sendPlain(out, requestLine, headers, "NTLM " + b64(type3),
